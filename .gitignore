@@ -1,0 +1,6 @@
+*.pkl
+.vscode
+.cursorignore
+models
+*.json
+*txt

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Energy Forecast — Dashboard (v1)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-copy">
+      <h1>Energy Forecast Dashboard</h1>
+      <p class="sub">Version 2.4 — navy &amp; white demo UI. Full pipeline: daily + hourly forecasts.</p>
+    </div>
+    <div class="hero-actions">
+      <button id="btn-run" type="button">Run pipeline</button>
+      <span id="status"></span>
+    </div>
+  </header>
+
+  <section id="summary-cards" class="kpi-grid"></section>
+
+  <section id="config" class="card"></section>
+
+  <section id="flow-brief" class="card"></section>
+
+  <section class="card">
+    <h2>7-day forecast (daily kWh)</h2>
+    <canvas id="chart-future-daily" height="100"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>7-day forecast (hourly kWh)</h2>
+    <canvas id="chart-future-hourly" height="80"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>48h hybrid forecast</h2>
+    <canvas id="chart-48h" height="80"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>Top 15 hourly feature importances</h2>
+    <canvas id="chart-importance" height="120"></canvas>
+  </section>
+
+  <section class="card">
+    <h2>Validation daily (actual vs pred)</h2>
+    <canvas id="chart-val-daily" height="100"></canvas>
+  </section>
+
+  <section class="grid">
+    <div class="card"><h2>Validation</h2><pre id="val-metrics"></pre></div>
+    <div class="card"><h2>Short-term hourly (7d holdout)</h2><pre id="hourly-metrics"></pre></div>
+    <div class="card"><h2>Recency</h2><pre id="recency"></pre></div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

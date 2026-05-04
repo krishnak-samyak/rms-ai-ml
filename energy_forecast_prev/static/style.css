@@ -1,0 +1,217 @@
+/* Energy forecast v1 — dark→light blue page, white / ice-blue panels */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600&display=swap');
+
+:root {
+  --navy: #0f172a;
+  --navy-mid: #1e3a5f;
+  --navy-light: #334155;
+  --surface: #dfeaf8;
+  --surface-tint: #f0f9ff;
+  --bg: #e0f2fe;
+  --card: #c9d0e6;
+  --border: #bfdbfe;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #0ea5e9;
+  --good: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1567cc;
+  margin: 0;
+  padding: 1.5rem 1.75rem;
+  line-height: 1.55;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 110% 80% at 90% 0%, rgba(56, 189, 248, 0.35) 0%, transparent 52%),
+    radial-gradient(ellipse 90% 70% at 0% 100%, rgba(15, 23, 42, 0.9) 0%, transparent 50%),
+    linear-gradient(155deg, #020617 0%, #0f172a 22%, #172554 48%, #1d4ed8 72%, #38bdf8 100%);
+  background-attachment: fixed;
+}
+
+h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--navy);
+}
+
+h2 {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--navy-light);
+}
+
+h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  color: var(--navy);
+}
+
+.sub {
+  color: var(--muted);
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.hero {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  background: linear-gradient(145deg, var(--surface) 0%, var(--surface-tint) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 16px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 8px 40px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(147, 197, 253, 0.35);
+  color: var(--text);
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+#btn-run {
+  background: linear-gradient(180deg, #1e40af 0%, #1d4ed8 100%);
+  color: #cbd4ee;
+  border: 2px solid #2563eb;
+  padding: 0.55rem 1.15rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(29, 78, 216, 0.35);
+  transition: transform 0.12s, filter 0.12s;
+}
+
+#btn-run:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+#btn-run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#status {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.card {
+  background: linear-gradient(145deg, var(--surface) 0%, var(--surface-tint) 100%);
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow: 0 8px 32px rgba(2, 6, 23, 0.48), 0 0 0 1px rgba(147, 197, 253, 0.32);
+  color: var(--text);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+pre {
+  margin: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--navy-light);
+}
+
+code {
+  font-size: 0.85em;
+  background: var(--surface-tint);
+  padding: 0.12em 0.4em;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.kpi {
+  background: linear-gradient(145deg, var(--surface) 0%, var(--surface-tint) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 6px 28px rgba(2, 6, 23, 0.45), 0 0 0 1px rgba(147, 197, 253, 0.3);
+  color: var(--text);
+}
+
+.kpi .label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kpi .value {
+  margin-top: 0.35rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.value.good { color: var(--good); }
+.value.warn { color: var(--warn); }
+.value.bad { color: var(--bad); }
+
+.flow-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.flow-step {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem;
+  background: var(--surface);
+  border-left: 4px solid var(--accent);
+}
+
+.flow-step h3 {
+  font-size: 0.92rem;
+}
+
+.flow-step p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+}
+
+canvas {
+  display: block;
+  max-width: 100%;
+}

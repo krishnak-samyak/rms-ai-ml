@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0a0c10" />
+  <title>Energy Forecast - Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="hero">
+    <h1>Energy Forecast Dashboard</h1>
+    <div class="hero-version-row" aria-label="Version and last training">
+      <p class="sub hero-version-tag">v2.4 — Daily forecast</p>
+      <p class="sub hero-last-trained" id="last-trained-date" title="From active model metadata (UTC stored, shown in local time)">Last trained: —</p>
+      <!-- <p class="sub hero-version-tag">Click Forecast to refresh the multi-day daily forecast chart.</p> -->
+    </div>
+
+    <div class="hero-actions">
+      <div class="btn-group" role="group" aria-label="Pipeline actions">
+        <button id="btn-run"  type="button" title="Train models, run forecasts, save everything (slow)">Full run</button>
+        <!-- title was: Train and save models only (no 7-day / 48h charts until forecast) -->
+        <button id="btn-train" type="button" title="Train and save daily models only; use Forecast for multi-day daily chart">Train only</button>
+        <!-- <input id="train-days" type="text" placeholder="Train days (≥251) or 'full'" style="width:200px;" /> -->
+        <!-- title was: Load saved models and refresh forecasts from latest data -->
+        <button id="btn-forecast" type="button" title="Load saved daily models and refresh the multi-day daily forecast">Forecast</button>
+        <!-- <button id="btn-status" type="button" class="btn-secondary" title="Check saved model files and metadata">Model status</button> -->
+      </div>
+      <!-- <p id="train-days-hint">
+        Recommended: Train on all available data (<code>full</code>) for best performance.
+      </p> -->
+      <span id="status" class="status-line"></span>
+    </div>
+  </header>
+
+  <section id="summary-cards" class="kpi-grid"></section>
+  
+  <!-- How this forecast works -->
+  <section id="flow-brief" class="card dropdown-section">
+    <div class="dropdown-header">
+      <h2>How this forecast works</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content"></div>
+  </section>
+
+  <!-- 7-day forecast (daily kWh) -->
+  <section class="card dropdown-section open">
+    <div class="dropdown-header">
+      <h2>7-day forecast (daily kWh)</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <canvas id="chart-future-daily" height="100"></canvas>
+    </div>
+  </section>
+
+  <!-- Daily-only: intra-day / hybrid hourly charts hidden.
+  <section class="card dropdown-section open">
+    <div class="dropdown-header">
+      <h2>7-day forecast (hourly kWh)</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <canvas id="chart-future-hourly" height="80"></canvas>
+    </div>
+  </section>
+
+  <section class="card dropdown-section open">
+    <div class="dropdown-header">
+      <h2>48h hybrid forecast</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <canvas id="chart-48h" height="80"></canvas>
+    </div>
+  </section>
+
+  <section class="card dropdown-section open">
+    <div class="dropdown-header">
+      <h2>Top 15 hourly feature importances</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <canvas id="chart-importance" height="120"></canvas>
+    </div>
+  </section>
+  -->
+  
+  <!-- Validation daily (actual vs pred) -->
+  <section class="card dropdown-section open">
+    <div class="dropdown-header">
+      <h2>Validation daily (actual vs pred)</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <canvas id="chart-val-daily" height="100"></canvas>
+    </div>
+  </section>
+
+  <!-- Model On Disk Details -->
+  <section id="model-status" class="card dropdown-section">
+    <div class="dropdown-header">
+      <h2>Model on disk</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content">
+      <p class="sub">Last training metadata and which artifact files exist (refreshed on load and after Train / Full run).</p>
+      <pre id="model-status-pre" style="margin-top:0.75rem">Loading…</pre>
+    </div>
+  </section>
+
+  <!-- Configuration Details -->
+  <!-- <section id="config" class="card dropdown-section">
+    <div class="dropdown-header">
+      <h2>Configuration</h2>
+      <button class="dropdown-toggle" aria-expanded="true">▼</button>
+    </div>
+    <div class="dropdown-content"></div>
+  </section> -->
+
+
+  <!-- Validation Details -->
+  <section class="grid">
+    <div class="card dropdown-section">
+      <div class="dropdown-header">
+        <h2>Validation</h2>
+        <button class="dropdown-toggle" aria-expanded="true">▼</button>
+      </div>
+      <div class="dropdown-content"><pre id="val-metrics"></pre></div>
+    </div>
+    <!-- Daily-only UI: short-term hourly holdout panel hidden (hourly training disabled).
+    <div class="card dropdown-section">
+      <div class="dropdown-header">
+        <h2>Short-term hourly (7d holdout)</h2>
+        <button class="dropdown-toggle" aria-expanded="true">▼</button>
+      </div>
+      <div class="dropdown-content"><pre id="hourly-metrics"></pre></div>
+    </div>
+    -->
+    <!-- Recency Details -->
+    <div class="card dropdown-section">
+      <div class="dropdown-header">
+        <h2>Recency</h2>
+        <button class="dropdown-toggle" aria-expanded="true">▼</button>
+      </div>
+      <div class="dropdown-content"><pre id="recency"></pre></div>
+    </div>
+  </section>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

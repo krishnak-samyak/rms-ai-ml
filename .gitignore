@@ -4,3 +4,8 @@
 models
 *.json
 *txt
+*.log
+__pycache__
+*.pyc
+.env
+*.csv

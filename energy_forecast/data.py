@@ -20,9 +20,22 @@ def train_raw_rtc_bounds(settings: Settings) -> tuple[pd.Timestamp, pd.Timestamp
     return start, end
 
 
-def infer_raw_rtc_bounds(settings: Settings) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Inclusive RTC window for inference-time Mongo refresh (UTC)."""
-    end = pd.Timestamp.now(tz="UTC")
+def infer_raw_rtc_bounds(
+    settings: Settings,
+    end: pd.Timestamp | datetime | None = None,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Inclusive RTC window for inference-time Mongo refresh (UTC).
+
+    ``end`` defaults to now() but should be set to the model's ``train_data_end``
+    so that a stale model (trained on May data, run in July) still fetches the
+    correct lookback window rather than querying for non-existent future rows.
+    """
+    if end is None:
+        end = pd.Timestamp.now(tz="UTC")
+    else:
+        end = pd.Timestamp(end)
+        if end.tzinfo is None:
+            end = end.tz_localize("UTC")
     start = end - pd.Timedelta(days=settings.infer_raw_lookback_days)
     return start, end
 
@@ -67,7 +80,11 @@ def load_raw_dataframe(
 
     raw = list(cursor)
     if not raw:
-        return pd.DataFrame()
+        raise ValueError(
+            f"No raw documents found for meter_id={settings.meter_id!r} "
+            f"in window [{rtc_gte}, {rtc_lte}]. "
+            "Check that RTC is stored as ISODate (not string) and the lookback window covers your data."
+        )
 
     df = pd.DataFrame(raw)
 

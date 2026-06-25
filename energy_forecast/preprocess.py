@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 def preprocess_hourly(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
     df = df.rename(

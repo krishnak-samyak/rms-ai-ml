@@ -197,7 +197,7 @@ function renderSummaryCards(payload) {
   */
   const blocks = [
     { label: "Validation daily MAPE",  value: `${Number(v.daily_mape_pct  || 0).toFixed(2)}%`, cls: scoreClass(Number(v.daily_mape_pct  || 100), 10, 25), icon: "📅" },
-    { label: "Monthly total error",    value: `${Number(v.val_total_error_pct || 0).toFixed(2)}%`, cls: scoreClass(Math.abs(Number(v.val_total_error_pct || 0)), 2, 15), icon: "🎯" },
+    { label: "Monthly total error ⚠",  value: `${Number(v.val_total_error_pct || 0).toFixed(2)}%`, cls: scoreClass(Math.abs(Number(v.val_total_error_pct || 0)), 2, 15), icon: "🎯", title: "Not an accuracy claim — this is the threshold optimizer's own residual, measured on the same validation data used to tune it. Use Daily MAPE for genuine accuracy." },
   ];
   if (v.classifier_accuracy !== undefined && v.classifier_accuracy !== null && !Number.isNaN(Number(v.classifier_accuracy))) {
     const accPct = Number(v.classifier_accuracy) * 100;
@@ -209,7 +209,7 @@ function renderSummaryCards(payload) {
     });
   }
   document.getElementById("summary-cards").innerHTML = blocks.map(b => `
-    <div class="kpi">
+    <div class="kpi"${b.title ? ` title="${b.title}"` : ""}>
       <div class="label"><span class="kpi-icon">${b.icon}</span>${b.label}</div>
       <div class="value ${b.cls}">${b.value}</div>
     </div>`).join("");
@@ -251,7 +251,7 @@ function renderValMetrics(v) {
   const rows = [
     /* { label: "Hourly MAPE", key: "hourly_mape_pct",     unit: "%", fmt: 2, good: 20, warn: 30 }, */
     { label: "Daily MAPE",  key: "daily_mape_pct",      unit: "%", fmt: 2, good: 10, warn: 25 },
-    { label: "Total error", key: "val_total_error_pct",  unit: "%", fmt: 2, abs: true, good: 2, warn: 10 },
+    { label: "Total error ⚠", key: "val_total_error_pct", unit: "%", fmt: 2, abs: true, good: 2, warn: 10, caveat: true },
     /* { label: "Active hours",key: "active_hours_for_mape",unit: "", fmt: 0 }, */
     { label: "Val samples", key: "n_val",               unit: "", fmt: 0 },
   ];
@@ -266,13 +266,18 @@ function renderValMetrics(v) {
       const bar = r.good !== undefined
         ? `<div class="mbar-wrap"><div class="mbar mbar-${cls}" style="width:${Math.min(100, (r.abs ? Math.abs(num) : num) / (r.warn * 1.5) * 100).toFixed(1)}%"></div></div>`
         : "";
-      return `<div class="metric-row">
+      return `<div class="metric-row"${r.caveat ? ' title="Not a true accuracy claim — see note below."' : ''}>
         <span class="metric-label">${r.label}</span>
         <span class="metric-val ${cls}">${display}</span>
         ${bar}
       </div>`;
     }).join("")}
-  </div>`;
+  </div>
+  <p class="metric-caveat">
+    <strong>⚠ Total error is not an accuracy claim.</strong>
+    The threshold was tuned to minimise this exact figure on the same validation data — so it reflects the optimizer's residual, not generalisation. Calibration is also fit on the same set, pushing it further toward zero.
+    Use <strong>Daily MAPE</strong> for a genuine measure of per-day forecast accuracy.
+  </p>`;
 }
 
 // Short-term hourly metrics panel (disabled in daily-only UI — #hourly-metrics commented out in index.html)

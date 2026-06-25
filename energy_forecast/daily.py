@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_error
 from xgboost import XGBClassifier, XGBRegressor
 
 from energy_forecast.constants import (
     ACTIVE_HOUR_THRESH,
+    DAILY_CALIB_A_MAX,
+    DAILY_CALIB_A_MIN,
+    DAILY_CALIB_B_MAX_FRAC_OF_Y_MEAN,
+    DAILY_CALIB_MIN_ACTIVE_VAL_DAYS,
+    DAILY_ISO_MAPE_TIE_EPS,
     DAILY_FEATURES,
     DAILY_FEATURES_V21,
     DAILY_FEATURES_V22,
@@ -118,12 +126,254 @@ def train_two_stage(
     return xgb_clf, xgb_reg, spw
 
 
-def recency_ratio(train_daily: pd.DataFrame, train_active: pd.DataFrame) -> float:
-    recent_active = train_daily[train_daily["is_active"] == 1].tail(RECENT_WINDOW)
-    if len(recent_active) == 0 or len(train_active) == 0:
+def recency_ratio(train_daily: pd.DataFrame) -> float:
+    """Scale active-day predictions toward recent operating level vs prior active level.
+
+    **Bug fix (under-forecast at monthly total):** The old formula used
+    ``mean(last N active days) / mean(all active days in train)``. Long-run
+    ``all_active`` mean can sit far above or below the *current* regime; a low
+    recent slice vs an inflated historical mean drives ratio < 1 and systematically
+    shrinks ``pred``, worsening validation totals when the holdout is hotter/busier.
+
+    **New formula:** ``mean(last RECENT_WINDOW active days) /
+    mean(earlier active days in the same frame)``. That compares *recent* to
+    *immediately prior* active history (same meter, same pipeline). Falls back to
+    ``1.0`` if there are too few prior active rows.
+
+    Still clipped to avoid extreme multipliers from small samples.
+    """
+    act = train_daily.loc[train_daily["is_active"] == 1].sort_values("ds")
+    if len(act) < RECENT_WINDOW + 5:
         return 1.0
-    ratio = recent_active["y"].mean() / train_active["y"].mean()
-    return float(np.clip(ratio, 0.5, 1.5))
+    recent = act.tail(RECENT_WINDOW)
+    prior = act.iloc[: -len(recent)]
+    if len(prior) < 5:
+        return 1.0
+    denom = float(prior["y"].mean())
+    if denom <= 0:
+        return 1.0
+    ratio = float(recent["y"].mean() / denom)
+    return float(np.clip(ratio, 0.75, 1.35))
+
+
+def _active_day_mape_pct(y: np.ndarray, pred: np.ndarray) -> float:
+    y = np.asarray(y, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    if len(y) == 0:
+        return float("nan")
+    return float(np.mean(np.abs((y - pred) / np.clip(y, 1.0, None))) * 100.0)
+
+
+def fit_daily_affine_calibration(
+    val_daily: pd.DataFrame,
+    min_active_days: int = DAILY_CALIB_MIN_ACTIVE_VAL_DAYS,
+) -> tuple[float, float, dict[str, Any]]:
+    """Fit ``y ≈ a * pred + b`` on validation rows where ``is_active`` (truth) is 1.
+
+    **Guardrails**
+    - Require at least ``min_active_days`` active truth rows.
+    - Clip ``a`` to ``[DAILY_CALIB_A_MIN, DAILY_CALIB_A_MAX]``.
+    - Clip ``b`` to ``± DAILY_CALIB_B_MAX_FRAC_OF_Y_MEAN * mean(y)``.
+    - If clipped coefficients do **not** improve mean active-day MAPE vs raw ``pred``,
+      disable calibration (return ``a=1, b=0``) so we never ship a harmful nudge.
+
+    ``pred`` here must already include classifier + regressor + recency scaling.
+    """
+    mask = val_daily["is_active"].values == 1
+    if int(mask.sum()) < min_active_days:
+        return 1.0, 0.0, {
+            "enabled": False,
+            "reason": "insufficient_active_val_days",
+            "n_active": int(mask.sum()),
+        }
+
+    va = val_daily.loc[mask]
+    y = va["y"].values.astype(float)
+    p = va["pred"].values.astype(float)
+    mape_before = _active_day_mape_pct(y, p)
+
+    lr = LinearRegression()
+    lr.fit(p.reshape(-1, 1), y)
+    a_raw = float(lr.coef_[0])
+    b_raw = float(lr.intercept_)
+
+    y_bar = float(np.mean(y))
+    b_cap = DAILY_CALIB_B_MAX_FRAC_OF_Y_MEAN * max(y_bar, 1.0)
+    a = float(np.clip(a_raw, DAILY_CALIB_A_MIN, DAILY_CALIB_A_MAX))
+    b = float(np.clip(b_raw, -b_cap, b_cap))
+
+    p_adj = np.clip(a * p + b, 0.0, None)
+    mape_after = _active_day_mape_pct(y, p_adj)
+
+    if mape_after >= mape_before * 0.999:
+        return 1.0, 0.0, {
+            "enabled": False,
+            "reason": "no_mape_improvement",
+            "mape_before_pct": mape_before,
+            "mape_after_clipped_pct": mape_after,
+            "a_raw": a_raw,
+            "b_raw": b_raw,
+        }
+
+    return a, b, {
+        "enabled": True,
+        "mape_before_pct": mape_before,
+        "mape_after_pct": mape_after,
+        "a_raw": a_raw,
+        "b_raw": b_raw,
+        "a_applied": a,
+        "b_applied": b,
+        "n_active_fit": int(len(y)),
+    }
+
+
+def apply_daily_calibration(
+    pred: float | np.ndarray,
+    a: float,
+    b: float,
+    *,
+    enabled: bool = True,
+) -> float | np.ndarray:
+    """Apply stored affine calibration to non-negative daily kWh predictions."""
+    if not enabled or (abs(a - 1.0) < 1e-9 and abs(b) < 1e-9):
+        return pred
+    arr = np.asarray(pred, dtype=float)
+    out = np.clip(float(a) * arr + float(b), 0.0, None)
+    if np.ndim(pred) == 0:
+        return float(out)
+    return out
+
+
+def fit_daily_isotonic_calibration(
+    val_daily: pd.DataFrame,
+    min_active_days: int = DAILY_CALIB_MIN_ACTIVE_VAL_DAYS,
+) -> tuple[tuple[list[float], list[float]] | None, dict[str, Any]]:
+    """Fit a **monotone increasing** mapping ``pred → y`` on active validation days.
+
+    Isotonic regression can correct **level vs load** curvature (e.g. under-forecast
+    at high kWh) that a single affine line cannot, while forbidding wiggles that
+    would invert the ordering of predictions.
+
+    **Guardrails:** same minimum active rows as affine; must improve mean active-day
+    MAPE vs raw ``pred``; require at least two isotonic knots.
+    """
+    mask = val_daily["is_active"].values == 1
+    if int(mask.sum()) < min_active_days:
+        return None, {
+            "enabled": False,
+            "reason": "insufficient_active_val_days",
+            "n_active": int(mask.sum()),
+        }
+
+    va = val_daily.loc[mask]
+    y = va["y"].values.astype(float)
+    p = va["pred"].values.astype(float)
+    mape_before = _active_day_mape_pct(y, p)
+
+    ir = IsotonicRegression(y_min=0.0, increasing=True, out_of_bounds="clip")
+    ir.fit(p, y)
+    y_hat = np.clip(ir.predict(p), 0.0, None)
+    mape_after = _active_day_mape_pct(y, y_hat)
+
+    if mape_after >= mape_before * 0.999:
+        return None, {
+            "enabled": False,
+            "reason": "no_mape_improvement",
+            "mape_before_pct": mape_before,
+            "mape_after_pct": mape_after,
+        }
+
+    xs = ir.X_thresholds_.astype(float).tolist()
+    ys = ir.y_thresholds_.astype(float).tolist()
+    if len(xs) < 2:
+        return None, {
+            "enabled": False,
+            "reason": "degenerate_isotonic",
+            "n_knots": len(xs),
+            "mape_after_pct": mape_after,
+        }
+
+    return (xs, ys), {
+        "enabled": True,
+        "mape_before_pct": mape_before,
+        "mape_after_pct": mape_after,
+        "n_knots": len(xs),
+        "n_active_fit": int(len(y)),
+    }
+
+
+def select_daily_calibration(val_daily: pd.DataFrame) -> dict[str, Any]:
+    """Fit affine + isotonic on validation; pick one that lowers MAPE with guardrails.
+
+    If both qualify, prefer **isotonic** only when it beats affine by at least
+    ``DAILY_ISO_MAPE_TIE_EPS`` (percentage points); otherwise keep **affine** (simpler).
+    """
+    aff_a, aff_b, aff_diag = fit_daily_affine_calibration(val_daily)
+    iso_knots, iso_diag = fit_daily_isotonic_calibration(val_daily)
+
+    iso_ok = bool(iso_diag.get("enabled")) and iso_knots is not None
+    aff_ok = bool(aff_diag.get("enabled"))
+    iso_x: list[float] = list(iso_knots[0]) if iso_ok else []
+    iso_y: list[float] = list(iso_knots[1]) if iso_ok else []
+
+    mode = "none"
+    if iso_ok and aff_ok:
+        mi = float(iso_diag["mape_after_pct"])
+        ma = float(aff_diag["mape_after_pct"])
+        if mi + DAILY_ISO_MAPE_TIE_EPS < ma:
+            mode = "isotonic"
+        else:
+            mode = "affine"
+    elif iso_ok:
+        mode = "isotonic"
+    elif aff_ok:
+        mode = "affine"
+
+    enabled = mode != "none"
+    return {
+        "mode": mode,
+        "enabled": enabled,
+        "affine_a": float(aff_a),
+        "affine_b": float(aff_b),
+        "iso_x": iso_x,
+        "iso_y": iso_y,
+        "affine_diag": aff_diag,
+        "iso_diag": iso_diag,
+    }
+
+
+def apply_daily_postcalibration(
+    pred: float | np.ndarray,
+    *,
+    mode: str,
+    enabled: bool,
+    affine_a: float = 1.0,
+    affine_b: float = 0.0,
+    iso_x: list[float] | None = None,
+    iso_y: list[float] | None = None,
+) -> float | np.ndarray:
+    """Apply stored daily post-calibration (affine **or** isotonic)."""
+    if not enabled or mode == "none":
+        return pred
+
+    if mode == "affine":
+        return apply_daily_calibration(pred, affine_a, affine_b, enabled=True)
+
+    if mode == "isotonic":
+        ix = iso_x or []
+        iy = iso_y or []
+        if len(ix) < 2 or len(iy) < 2:
+            return pred
+        xk = np.asarray(ix, dtype=float)
+        yk = np.asarray(iy, dtype=float)
+        arr = np.asarray(pred, dtype=float)
+        out = np.interp(arr, xk, yk, left=float(yk[0]), right=float(yk[-1]))
+        out = np.clip(out, 0.0, None)
+        if np.ndim(pred) == 0:
+            return float(out)
+        return out
+
+    return pred
 
 
 def predict_daily_two_stage(

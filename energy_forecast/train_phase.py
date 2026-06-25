@@ -29,9 +29,11 @@ from energy_forecast.constants import (
 )
 from energy_forecast.daily import (
     add_day_type_column,
+    apply_daily_postcalibration,
     build_daily_agg,
     predict_daily_two_stage,
     recency_ratio,
+    select_daily_calibration,
     train_two_stage,
     tune_threshold_total_error,
     validation_metrics,
@@ -76,6 +78,14 @@ class TrainPhaseResult:
     val_metrics: dict[str, Any] = field(default_factory=dict)
     hourly_short_term_metrics: dict[str, Any] = field(default_factory=dict)
     hourly_feature_importance_top15: list[dict[str, Any]] = field(default_factory=list)
+    #: Post-calibration on active classifier-positive days: ``affine`` or ``isotonic`` (val holdout).
+    daily_calib_mode: str = "none"
+    daily_calib_a: float = 1.0
+    daily_calib_b: float = 0.0
+    daily_calib_iso_x: list[float] = field(default_factory=list)
+    daily_calib_iso_y: list[float] = field(default_factory=list)
+    daily_calib_enabled: bool = False
+    daily_calib: dict[str, Any] = field(default_factory=dict)
 
 
 def run_train_phase(settings: Settings) -> TrainPhaseResult:
@@ -116,8 +126,7 @@ def run_train_phase(settings: Settings) -> TrainPhaseResult:
 
     logger.info("[train] Training two-stage daily model (v2.2 features)")
     xgb_clf, xgb_reg, spw = train_two_stage(train_daily, daily_features=DAILY_FEATURES_V22)
-    train_active = train_daily[train_daily["is_active"] == 1]
-    rec_val = recency_ratio(train_daily, train_active)
+    rec_val = recency_ratio(train_daily)
     val_daily = predict_daily_two_stage(
         val_daily,
         xgb_clf,
@@ -143,6 +152,30 @@ def run_train_phase(settings: Settings) -> TrainPhaseResult:
         daily_features=DAILY_FEATURES_V22,
     )
     val_daily = add_day_type_column(val_daily)
+
+    sel = select_daily_calibration(val_daily)
+    cal_on = bool(sel["enabled"])
+    cal_mode = str(sel["mode"])
+    cal_a = float(sel["affine_a"])
+    cal_b = float(sel["affine_b"])
+    cal_iso_x = list(sel["iso_x"])
+    cal_iso_y = list(sel["iso_y"])
+    cal_diag: dict[str, Any] = {
+        "chosen_mode": cal_mode,
+        "affine": sel["affine_diag"],
+        "isotonic": sel["iso_diag"],
+    }
+    if cal_on:
+        mpos = val_daily["clf_active"].astype(int) == 1
+        val_daily.loc[mpos, "pred"] = apply_daily_postcalibration(
+            val_daily.loc[mpos, "pred"].values,
+            mode=cal_mode,
+            enabled=True,
+            affine_a=cal_a,
+            affine_b=cal_b,
+            iso_x=cal_iso_x,
+            iso_y=cal_iso_y,
+        ).astype(np.float32)
 
     # logger.info("[train] Day-ahead hourly model (DAYAHEAD_HOURLY_FEATURES)")
     # val_start_ts = pd.Timestamp(val_start)
@@ -177,10 +210,12 @@ def run_train_phase(settings: Settings) -> TrainPhaseResult:
     # val_metrics = validation_metrics(val_daily, df, val_hourly_fc)
     val_metrics = validation_metrics(val_daily, df)
     logger.info(
-        "[train] Validation totals: actual=%.2f pred=%.2f err=%.2f%%",
+        "[train] Validation totals: actual=%.2f pred=%.2f err=%.2f%% | daily_calib=%s mode=%s",
         val_metrics["val_actual_total_kwh"],
         val_metrics["val_pred_total_kwh"],
         val_metrics["val_total_error_pct"],
+        "on" if cal_on else "off",
+        cal_mode,
     )
 
     all_active = daily_agg[daily_agg["is_active"] == 1]
@@ -207,12 +242,7 @@ def run_train_phase(settings: Settings) -> TrainPhaseResult:
     )
     xgb_reg_full.fit(all_active[DAILY_FEATURES_V22], all_active["y"], verbose=False)
 
-    recent_full = daily_agg[daily_agg["is_active"] == 1].tail(RECENT_WINDOW)
-    rec_full = (
-        float(np.clip(recent_full["y"].mean() / all_active["y"].mean(), 0.5, 1.5))
-        if len(all_active) and len(recent_full)
-        else 1.0
-    )
+    rec_full = recency_ratio(daily_agg)
     logger.info("[train] Recency ratios: val=%.3f full=%.3f", rec_val, rec_full)
 
     # test_days = 7
@@ -259,4 +289,11 @@ def run_train_phase(settings: Settings) -> TrainPhaseResult:
         shape_full=None,
         hourly_short_term_metrics={},
         hourly_feature_importance_top15=[],
+        daily_calib_mode=cal_mode,
+        daily_calib_a=float(cal_a),
+        daily_calib_b=float(cal_b),
+        daily_calib_iso_x=cal_iso_x,
+        daily_calib_iso_y=cal_iso_y,
+        daily_calib_enabled=cal_on,
+        daily_calib=cal_diag,
     )

@@ -162,6 +162,13 @@ def persist_training_artifacts(
         "recency_ratio_val": tr.recency_ratio_val,
         "recency_ratio_full": tr.recency_ratio_full,
         "spw": tr.spw,
+        "daily_calib_mode": tr.daily_calib_mode,
+        "daily_calib_a": tr.daily_calib_a,
+        "daily_calib_b": tr.daily_calib_b,
+        "daily_calib_iso_x": tr.daily_calib_iso_x,
+        "daily_calib_iso_y": tr.daily_calib_iso_y,
+        "daily_calib_enabled": tr.daily_calib_enabled,
+        "daily_calibration": tr.daily_calib,
         "validation": tr.val_metrics,
         # "hourly_short_term_metrics": tr.hourly_short_term_metrics,
         # "hourly_feature_importance_top15": tr.hourly_feature_importance_top15,
@@ -236,8 +243,12 @@ def load_train_phase_for_inference(settings: Settings) -> TrainPhaseResult:
             "[infer reload] infer_raw_lookback_days=%d may be tight for ~168h lag features",
             settings.infer_raw_lookback_days,
         )
-    ig, il = infer_raw_rtc_bounds(settings)
-    logger.info("[infer reload] Raw Mongo RTC window %s .. %s", ig, il)
+    train_data_end = meta.get("train_data_end")
+    ig, il = infer_raw_rtc_bounds(
+        settings,
+        end=pd.Timestamp(train_data_end) if train_data_end else None,
+    )
+    logger.info("[infer reload] Raw Mongo RTC window %s .. %s (anchored to train_data_end=%s)", ig, il, train_data_end)
     df_raw = load_raw_dataframe(settings, rtc_gte=ig, rtc_lte=il)
     df = preprocess_hourly(df_raw)
     df = build_features(df, _ae).dropna()
@@ -270,6 +281,16 @@ def load_train_phase_for_inference(settings: Settings) -> TrainPhaseResult:
         shape_full=None,
         hourly_short_term_metrics=meta.get("hourly_short_term_metrics", {}),
         hourly_feature_importance_top15=meta.get("hourly_feature_importance_top15", []),
+        daily_calib_mode=str(
+            meta.get("daily_calib_mode")
+            or ("affine" if meta.get("daily_calib_enabled") else "none")
+        ),
+        daily_calib_a=float(meta.get("daily_calib_a", 1.0)),
+        daily_calib_b=float(meta.get("daily_calib_b", 0.0)),
+        daily_calib_iso_x=list(meta.get("daily_calib_iso_x") or []),
+        daily_calib_iso_y=list(meta.get("daily_calib_iso_y") or []),
+        daily_calib_enabled=bool(meta.get("daily_calib_enabled", False)),
+        daily_calib=dict(meta.get("daily_calibration") or {}),
     )
 
 
@@ -311,5 +332,10 @@ def build_forecast_api_payload(
             "train_data_end": meta.get("train_data_end"),
             "inference_data_end": str(df["rtc_timestamp"].max()) if len(df) else None,
             "artifact_version": meta.get("artifact_version"),
+            "daily_calib_enabled": meta.get("daily_calib_enabled"),
+            "daily_calib_mode": meta.get("daily_calib_mode"),
+            "daily_calib_a": meta.get("daily_calib_a"),
+            "daily_calib_b": meta.get("daily_calib_b"),
+            "daily_calib_iso_knots": len(meta.get("daily_calib_iso_x") or []),
         },
     }

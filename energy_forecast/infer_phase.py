@@ -11,7 +11,7 @@ import pandas as pd
 
 from energy_forecast.config import Settings
 from energy_forecast.constants import DAILY_FEATURES_V22
-from energy_forecast.daily import add_day_type_column, build_future_daily_rows
+from energy_forecast.daily import add_day_type_column, apply_daily_postcalibration, build_future_daily_rows
 # from energy_forecast.decompose import decompose_daily_to_hourly
 # from energy_forecast.hybrid import hybrid_forecast_48h as run_hybrid_48h
 # from energy_forecast.hourly_shape import predict_future_hourly_recursive
@@ -81,6 +81,19 @@ def run_infer_phase(settings: Settings, tr: TrainPhaseResult) -> InferPhaseResul
         reg = float(xgb_reg_full.predict(row_df[DAILY_FEATURES_V22]).clip(min=0)[0])
         clf_active = int(prob >= tuned_thr)
         pred = (reg * rec_full) if clf_active == 1 else 0.0
+        if getattr(tr, "daily_calib_enabled", False):
+            mode = getattr(tr, "daily_calib_mode", "affine")
+            pred = float(
+                apply_daily_postcalibration(
+                    pred,
+                    mode=str(mode),
+                    enabled=True,
+                    affine_a=float(getattr(tr, "daily_calib_a", 1.0)),
+                    affine_b=float(getattr(tr, "daily_calib_b", 0.0)),
+                    iso_x=list(getattr(tr, "daily_calib_iso_x", []) or []),
+                    iso_y=list(getattr(tr, "daily_calib_iso_y", []) or []),
+                )
+            )
 
         out = feat_row.copy()
         out["clf_prob"] = prob

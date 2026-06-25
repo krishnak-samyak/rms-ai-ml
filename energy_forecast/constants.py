@@ -1,9 +1,14 @@
-"""Thresholds and feature lists (aligned with energy_forecast_v2.ipynb)."""
-
 SHUTDOWN_THRESH = 50
 ACTIVE_HOUR_THRESH = 5.0
 PROB_THRESH = 0.15
 RECENT_WINDOW = 30
+# Affine daily calibration: clip slope / intercept after OLS on validation active days.
+DAILY_CALIB_A_MIN = 0.88
+DAILY_CALIB_A_MAX = 1.12
+DAILY_CALIB_B_MAX_FRAC_OF_Y_MEAN = 0.30
+DAILY_CALIB_MIN_ACTIVE_VAL_DAYS = 10
+# Isotonic post-calibration: prefer only if it beats affine on validation MAPE.
+DAILY_ISO_MAPE_TIE_EPS = 0.1 # percentage points — if within this of affine, keep affine (simpler)
 FORECAST_DAYS = 7
 MIN_DAYS_FOR_DOW = 4
 SHORT_TERM_SHUTDOWN_THRESH = 0.15

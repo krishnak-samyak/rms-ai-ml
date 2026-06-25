@@ -13,8 +13,8 @@ class Settings:
     collection: str
     meter_id: str
     model_dir: str
-    val_days: int = 31
-    forecast_days: int = 7
+    val_days: int = 41
+    forecast_days: int = 5
     #: Raw Mongo rows loaded for training (RTC window ending at “now”).
     train_raw_lookback_days: int = 365
     #: Raw Mongo rows for inference refresh (must cover ~168h+ feature history).

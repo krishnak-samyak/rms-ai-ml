@@ -106,7 +106,13 @@ def api_train(trainRequest: TrainRequest):
             "validation": meta.get("validation"),
             "hourly_short_term_metrics": meta.get("hourly_short_term_metrics", {}),
             "model_dir": settings.model_dir,
-            "train_days": settings.train_raw_lookback_days
+            "train_days": settings.train_raw_lookback_days,
+            "daily_calib_enabled": meta.get("daily_calib_enabled"),
+            "daily_calib_mode": meta.get("daily_calib_mode"),
+            "daily_calib_a": meta.get("daily_calib_a"),
+            "daily_calib_b": meta.get("daily_calib_b"),
+            "daily_calib_iso_knots": len(meta.get("daily_calib_iso_x") or []),
+            "daily_calibration": meta.get("daily_calibration"),
         }
     )
 
